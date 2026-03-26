@@ -1,0 +1,12 @@
+\venv/
+__pycache__/
+*.pyc
+*.npy
+*.edf
+*.pt
+*.pth
+data/
+EEG/
+CHB_MIT/
+results/
+.DS_Store

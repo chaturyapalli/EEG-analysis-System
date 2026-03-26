@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EEG Analysis System</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            margin-top: 50px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            width: 520px;
+            margin: auto;
+            box-shadow: 0px 0px 15px rgba(0,0,0,0.1);
+        }
+
+        button {
+            padding: 10px 20px;
+            margin-top: 15px;
+            background: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+
+        canvas {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+    <h2>EEG Analysis System</h2>
+
+    <input type="file" id="fileInput"><br>
+    <button onclick="uploadFile()">Analyze</button>
+
+    <div id="result"></div>
+
+    <canvas id="eegChart"></canvas>
+    <canvas id="bandChart"></canvas>
+    <canvas id="channelChart"></canvas>
+</div>
+
+<script>
+let eegChart, bandChart, channelChart;
+
+function uploadFile() {
+    const file = document.getElementById("fileInput").files[0];
+    if (!file) return alert("Select file");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    fetch("/analyze", { method: "POST", body: formData })
+    .then(res => res.json())
+    .then(data => {
+
+        if (data.error) {
+            document.getElementById("result").innerHTML = data.error;
+            return;
+        }
+
+        document.getElementById("result").innerHTML =
+            `<b>Prediction:</b> ${data.prediction} (${data.confidence}%)<br>
+             <b>Delta Band:</b> ${data.delta} (Relative Power ${data.delta_value.toFixed(2)})<br>
+             <b>Theta Band:</b> ${data.theta} (Relative Power ${data.theta_value.toFixed(2)})<br>
+             <b>Important Electrodes:</b> ${data.electrodes}<br>
+             <span style="font-size:12px;color:gray;">
+             Relative power graph shows distribution between delta and theta activity.
+             </span>`;
+
+        // EEG SIGNAL
+        if (eegChart) eegChart.destroy();
+        eegChart = new Chart(document.getElementById("eegChart"), {
+            type: 'line',
+            data: {
+                labels: data.signal.map((_, i) => i),
+                datasets: [{
+                    label: "EEG Signal (µV)",
+                    data: data.signal
+                }]
+            }
+        });
+
+        // DELTA THETA
+        if (bandChart) bandChart.destroy();
+        bandChart = new Chart(document.getElementById("bandChart"), {
+            type: 'bar',
+            data: {
+                labels: ["Delta", "Theta"],
+                datasets: [{
+                    label: "Relative Power",
+                    data: [data.delta_value, data.theta_value]
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        min: 0,
+                        max: 1
+                    }
+                }
+            }
+        });
+
+        // ELECTRODES
+        if (channelChart) channelChart.destroy();
+        channelChart = new Chart(document.getElementById("channelChart"), {
+            type: 'bar',
+            data: {
+                labels: data.channel_names,
+                datasets: [{
+                    label: "Electrode Activity",
+                    data: data.channel_scores
+                }]
+            },
+            options: { indexAxis: 'y' }
+        });
+
+    });
+}
+</script>
+
+</body>
+</html>
