@@ -136,17 +136,30 @@ def analyze():
         # =========================
         # FINAL DECISION LOGIC
         # =========================
-        if abnormal_ratio > 0.35 or signal_variance > 3:
+        # Abnormal EEG
+        if abnormal_ratio > 0.35:
             prediction = "Abnormal"
 
-        elif delta_ratio > 0.6:
-            prediction = "Normal (Sleep Pattern)"
+        elif signal_variance > 5:
+            prediction = "Abnormal"
 
-        elif theta_ratio > 0.6:
-            prediction = "Drowsy / Relaxed"
+        elif theta_ratio > 0.65:
+            prediction = "Abnormal"
 
-        else:
+        # Sleep EEG
+        elif delta_ratio > 0.65:
+            prediction = "Sleep EEG"
+
+        # Normal EEG
+        elif (0.35 <= delta_ratio <= 0.6 and
+            0.35 <= theta_ratio <= 0.6 and
+            abnormal_ratio < 0.25 and
+            signal_variance < 4):
             prediction = "Normal"
+
+        # Otherwise
+        else:
+            prediction = "Borderline"
 
         # =========================
         # IMPORTANT ELECTRODES

@@ -31,6 +31,13 @@
             color: white;
             border: none;
             border-radius: 5px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+
+        button:hover {
+            background: #0056b3;
+            transform: scale(1.05);
         }
 
         canvas {
@@ -44,7 +51,7 @@
 <div class="container">
     <h2>EEG Analysis System</h2>
 
-    <input type="file" id="fileInput"><br>
+    <input title="fileInput" type="file" id="fileInput"><br>
     <button onclick="uploadFile()">Analyze</button>
 
     <div id="result"></div>
