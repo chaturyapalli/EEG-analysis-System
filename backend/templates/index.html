@@ -1,143 +1,277 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EEG Analysis System</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EEG Clinical AI</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <style>
-        body {
-            font-family: Arial;
-            text-align: center;
-            margin-top: 50px;
-            background: #f5f5f5;
-        }
+<style>
+body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #f1f5f9;
+}
 
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            width: 520px;
-            margin: auto;
-            box-shadow: 0px 0px 15px rgba(0,0,0,0.1);
-        }
+/* HEADER */
+.header {
+    background: #0f172a;
+    color: white;
+    padding: 18px;
+    text-align: center;
+    font-size: 22px;
+    font-weight: bold;
+}
 
-        button {
-            padding: 10px 20px;
-            margin-top: 15px;
-            background: #007BFF;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: 0.3s;
-        }
+/* MAIN */
+.container {
+    width: 92%;
+    margin: auto;
+    margin-top: 20px;
+}
 
-        button:hover {
-            background: #0056b3;
-            transform: scale(1.05);
-        }
+/* UPLOAD */
+.upload-box {
+    text-align: center;
+    margin-bottom: 25px;
+}
 
-        canvas {
-            margin-top: 20px;
-        }
-    </style>
+button {
+    padding: 12px 25px;
+    font-size: 16px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+/* GRID */
+.grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+}
+
+.bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+/* CARD */
+.card {
+    background: white;
+    padding: 18px;
+    border-radius: 10px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+}
+
+h3 {
+    margin-bottom: 10px;
+    font-size: 20px;
+}
+
+/* CHART */
+canvas {
+    width: 100% !important;
+    height: 240px !important;
+}
+
+/* RESULT */
+#result {
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+/* PROGRESS BAR */
+.progress {
+    width: 100%;
+    background: #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 10px;
+}
+
+.progress-bar {
+    height: 18px;
+    text-align: center;
+    color: white;
+    font-size: 12px;
+}
+
+/* INTERPRETATION */
+.interpretation {
+    margin-top: 12px;
+    padding: 12px;
+    background: #eef4ff;
+    border-left: 5px solid #2563eb;
+    border-radius: 6px;
+}
+
+/* LOADING */
+.loading {
+    display: none;
+    color: #2563eb;
+    font-weight: bold;
+}
+</style>
 </head>
 
 <body>
 
+<div class="header">
+Encephalitis-like EEG Pattern Detection System
+</div>
+
 <div class="container">
-    <h2>EEG Analysis System</h2>
 
-    <input title="fileInput" type="file" id="fileInput"><br>
-    <button onclick="uploadFile()">Analyze</button>
+<div class="upload-box">
+<input type="file" id="fileInput">
+<button onclick="uploadFile()">Analyze EEG</button>
+<div id="loading" class="loading">Analyzing EEG...</div>
+</div>
 
-    <div id="result"></div>
+<div class="grid">
 
-    <canvas id="eegChart"></canvas>
-    <canvas id="bandChart"></canvas>
-    <canvas id="channelChart"></canvas>
+<div class="card">
+<h3>EEG Signal</h3>
+<canvas id="eegChart"></canvas>
+</div>
+
+<div class="card">
+<h3>Prediction Summary</h3>
+<div id="result"></div>
+
+<div class="progress">
+<div id="confidenceBar" class="progress-bar"></div>
+</div>
+
+</div>
+
+</div>
+
+<div class="bottom-grid">
+
+<div class="card">
+<h3>Frequency Analysis</h3>
+<canvas id="bandChart"></canvas>
+</div>
+
+<div class="card">
+<h3>Electrode Activity</h3>
+<canvas id="channelChart"></canvas>
+</div>
+
+</div>
+
 </div>
 
 <script>
+
 let eegChart, bandChart, channelChart;
 
 function uploadFile() {
-    const file = document.getElementById("fileInput").files[0];
-    if (!file) return alert("Select file");
 
-    const formData = new FormData();
-    formData.append("file", file);
+const file = document.getElementById("fileInput").files[0];
+if (!file) return alert("Select file");
 
-    fetch("/analyze", { method: "POST", body: formData })
-    .then(res => res.json())
-    .then(data => {
+document.getElementById("loading").style.display = "block";
 
-        if (data.error) {
-            document.getElementById("result").innerHTML = data.error;
-            return;
-        }
+const formData = new FormData();
+formData.append("file", file);
 
-        document.getElementById("result").innerHTML =
-            `<b>Prediction:</b> ${data.prediction} (${data.confidence}%)<br>
-             <b>Delta Band:</b> ${data.delta} (Relative Power ${data.delta_value.toFixed(2)})<br>
-             <b>Theta Band:</b> ${data.theta} (Relative Power ${data.theta_value.toFixed(2)})<br>
-             <b>Important Electrodes:</b> ${data.electrodes}<br>
-             <span style="font-size:12px;color:gray;">
-             Relative power graph shows distribution between delta and theta activity.
-             </span>`;
+fetch("/analyze", { method: "POST", body: formData })
+.then(res => res.json())
+.then(data => {
 
-        // EEG SIGNAL
-        if (eegChart) eegChart.destroy();
-        eegChart = new Chart(document.getElementById("eegChart"), {
-            type: 'line',
-            data: {
-                labels: data.signal.map((_, i) => i),
-                datasets: [{
-                    label: "EEG Signal (µV)",
-                    data: data.signal
-                }]
-            }
-        });
+document.getElementById("loading").style.display = "none";
 
-        // DELTA THETA
-        if (bandChart) bandChart.destroy();
-        bandChart = new Chart(document.getElementById("bandChart"), {
-            type: 'bar',
-            data: {
-                labels: ["Delta", "Theta"],
-                datasets: [{
-                    label: "Relative Power",
-                    data: [data.delta_value, data.theta_value]
-                }]
-            },
-            options: {
-                scales: {
-                    y: {
-                        min: 0,
-                        max: 1
-                    }
-                }
-            }
-        });
+if (data.error) {
+document.getElementById("result").innerHTML = `<span style="color:red">${data.error}</span>`;
+return;
+}
 
-        // ELECTRODES
-        if (channelChart) channelChart.destroy();
-        channelChart = new Chart(document.getElementById("channelChart"), {
-            type: 'bar',
-            data: {
-                labels: data.channel_names,
-                datasets: [{
-                    label: "Electrode Activity",
-                    data: data.channel_scores
-                }]
-            },
-            options: { indexAxis: 'y' }
-        });
+// COLOR LOGIC
+let color = data.confidence > 85 ? "#16a34a" :
+            data.confidence > 60 ? "#f59e0b" : "#dc2626";
 
-    });
+// TEXT
+document.getElementById("result").innerHTML =
+`<b>Detection:</b> ${
+    data.encephalitis_detected 
+    ? "Encephalitis-like Pattern Detected" 
+    : "No Encephalitis-like Pattern"
+}<br>
+
+<b>Severity:</b> ${data.encephalitis_level}<br>
+<b>Confidence:</b> ${data.confidence}%<br><br>
+
+<b>Delta:</b> ${data.delta} (${data.delta_value.toFixed(2)})<br>
+<b>Theta:</b> ${data.theta} (${data.theta_value.toFixed(2)})<br><br>
+
+<b>Electrodes:</b> ${data.electrodes}
+
+<div class="interpretation">
+<b>Clinical Insight:</b><br>
+${data.interpretation}
+</div>`;
+
+// PROGRESS BAR
+const bar = document.getElementById("confidenceBar");
+bar.style.width = data.confidence + "%";
+bar.style.background = color;
+bar.innerText = data.confidence + "%";
+
+// EEG
+if (eegChart) eegChart.destroy();
+eegChart = new Chart(document.getElementById("eegChart"), {
+type: 'line',
+data: {
+labels: data.signal.map((_, i) => i),
+datasets: [{
+data: data.signal,
+borderColor: "#2563eb",
+borderWidth: 2,
+pointRadius: 0,
+tension: 0.3
+}]
+},
+options: { plugins: { legend: { display: false } } }
+});
+
+// BAND
+if (bandChart) bandChart.destroy();
+bandChart = new Chart(document.getElementById("bandChart"), {
+type: 'bar',
+data: {
+labels: ["Delta", "Theta"],
+datasets: [{
+    label: "Relative Power",
+    data: [data.delta_value, data.theta_value],
+    backgroundColor: ["#3b82f6", "#9333ea"]
+}]
+}
+});
+
+// ELECTRODES
+if (channelChart) channelChart.destroy();
+channelChart = new Chart(document.getElementById("channelChart"), {
+type: 'bar',
+data: {
+labels: data.channel_names,
+datasets: [{
+    label: "Electrode Contribution",
+    data: data.channel_scores,
+    backgroundColor: "#2563eb"
+}]
+},
+options: { indexAxis: 'y' }
+});
+
+});
 }
 </script>
 

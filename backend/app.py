@@ -7,9 +7,8 @@ import os
 import mne
 import sys
 
-# =========================
+
 # LOAD MODEL
-# =========================
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.train_model import CNN_GAT
 
@@ -17,9 +16,9 @@ model = CNN_GAT()
 model.load_state_dict(torch.load("models/cnn_gat_model.pth", map_location="cpu"))
 model.eval()
 
-# =========================
+
 # ELECTRODES
-# =========================
+
 electrodes = [
     'Fp1','Fp2','F3','F4','C3','C4','P3','P4',
     'O1','O2','F7','F8','T3','T4','T5','T6','Cz'
@@ -48,12 +47,12 @@ def analyze():
         raw.pick_types(eeg=True)
 
         sfreq = int(raw.info['sfreq'])
-        data, _ = raw[:, :]
+        data, _ = raw[:, :3000]
         data = data.astype(np.float32)
 
-        # =========================
+        
         # NORMALIZE EEG
-        # =========================
+        
         data = (data - np.mean(data)) / (np.std(data) + 1e-6)
 
         # FIX CHANNEL SIZE
@@ -63,9 +62,9 @@ def analyze():
             pad = np.zeros((17 - data.shape[0], data.shape[1]), dtype=np.float32)
             data = np.vstack((data, pad))
 
-        # =========================
+        
         # SEGMENT EEG (FAST VERSION)
-        # =========================
+        
         WINDOW_SIZE = sfreq * 5
         segments = []
 
@@ -85,9 +84,9 @@ def analyze():
 
         segments = np.array(segments, dtype=np.float32)
 
-        # =========================
+        
         # MODEL PREDICTION
-        # =========================
+        
         abnormal_count = 0
         confs = []
 
@@ -107,14 +106,14 @@ def analyze():
         abnormal_ratio = abnormal_count / len(segments)
         confidence = float(np.mean(confs)) * 100
 
-        # =========================
+        
         # SIGNAL VARIANCE
-        # =========================
+        
         signal_variance = np.var(data)
 
-        # =========================
+        
         # DELTA / THETA POWER
-        # =========================
+        
         delta = float(np.mean(np.abs(segments[:, :, :100])))
         theta = float(np.mean(np.abs(segments[:, :, 100:200])))
 
@@ -133,37 +132,68 @@ def analyze():
         delta_status = band_status(delta_ratio)
         theta_status = band_status(theta_ratio)
 
-        # =========================
-        # FINAL DECISION LOGIC
-        # =========================
-        # Abnormal EEG
-        if abnormal_ratio > 0.35:
+
+        # WEIGHTED DECISION SYSTEM
+        abnormal_score = 0
+        sleep_score = 0
+        normal_score = 0
+
+        # --- Model output importance ---
+        abnormal_score += abnormal_ratio * 3
+
+        # --- Band analysis ---
+        if delta_ratio > 0.65:
+            sleep_score += 2
+
+        if theta_ratio > 0.6:
+            abnormal_score += 1
+
+        if 0.35 <= delta_ratio <= 0.6:
+            normal_score += 1
+
+        if 0.35 <= theta_ratio <= 0.6:
+            normal_score += 1
+
+        # --- Signal variance ---
+        if signal_variance > 5:
+            abnormal_score += 1
+        elif signal_variance < 4:
+            normal_score += 1
+
+        # --- Final decision ---
+        if abnormal_score >= sleep_score and abnormal_score >= normal_score:
             prediction = "Abnormal"
 
-        elif signal_variance > 5:
-            prediction = "Abnormal"
-
-        elif theta_ratio > 0.65:
-            prediction = "Abnormal"
-
-        # Sleep EEG
-        elif delta_ratio > 0.65:
+        elif sleep_score >= abnormal_score and sleep_score >= normal_score:
             prediction = "Sleep EEG"
 
-        # Normal EEG
-        elif (0.35 <= delta_ratio <= 0.6 and
-            0.35 <= theta_ratio <= 0.6 and
-            abnormal_ratio < 0.25 and
-            signal_variance < 4):
+        elif normal_score >= abnormal_score and normal_score >= sleep_score:
             prediction = "Normal"
 
-        # Otherwise
         else:
             prediction = "Borderline"
 
-        # =========================
+        # 🧠 ENCEPHALITIS DETECTION
+
+        encephalitis_flag = False
+        encephalitis_level = "None"
+
+        if prediction == "Abnormal":
+
+            if delta_ratio > 0.5 and theta_ratio > 0.4:
+                encephalitis_flag = True
+                encephalitis_level = "Strong"
+
+            elif delta_ratio > 0.45 or theta_ratio > 0.4:
+                encephalitis_flag = True
+                encephalitis_level = "Moderate"
+
+            else:
+                encephalitis_level = "Mild"
+
+        
         # IMPORTANT ELECTRODES
-        # =========================
+        
         sample = segments[0]
         activity = np.mean(np.abs(sample), axis=1)
         activity = activity / np.max(activity)
@@ -173,6 +203,39 @@ def analyze():
         channel_scores = activity.astype(float).tolist()
 
         signal = (sample[0][:200]).astype(float).tolist()
+        
+        # EEG INTERPRETATION TEXT
+
+        interpretation = ""
+
+        if encephalitis_flag:
+
+            interpretation += f"Encephalitis-like pattern detected ({encephalitis_level}). "
+
+            interpretation += (
+                "Diffuse slowing is observed in EEG signals with elevated delta and theta activity. "
+            )
+
+            interpretation += f"Dominant activity observed in electrodes {', '.join(important_channels)}."
+
+        elif prediction == "Abnormal":
+
+            interpretation += (
+                "Abnormal EEG activity detected, but no strong evidence of encephalitis-like patterns. "
+            )
+
+        elif prediction == "Sleep EEG":
+
+            interpretation = "EEG pattern resembles physiological sleep activity with dominant slow waves."
+
+        elif prediction == "Normal":
+
+            interpretation = "EEG appears normal with no encephalitis-like patterns detected."
+
+        else:
+
+            interpretation = "Borderline EEG activity detected. Clinical correlation recommended."
+
 
         return jsonify({
             "prediction": prediction,
@@ -184,7 +247,10 @@ def analyze():
             "theta_value": float(theta_ratio),
             "signal": signal,
             "channel_names": electrodes,
-            "channel_scores": channel_scores
+            "channel_scores": channel_scores,
+            "interpretation": interpretation,
+            "encephalitis_detected": encephalitis_flag,
+            "encephalitis_level": encephalitis_level
         })
 
     except Exception as e:

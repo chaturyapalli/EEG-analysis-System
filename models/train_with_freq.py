@@ -15,10 +15,9 @@ from sklearn.metrics import (
 import matplotlib.pyplot as plt
 import os
 
-
-
+# =========================
 # GRAPH FUNCTION
-
+# =========================
 def create_graph(sample):
     num_nodes = sample.shape[0]
     edge_index = []
@@ -31,29 +30,42 @@ def create_graph(sample):
     return Data(x=sample, edge_index=edge_index)
 
 
-
-# MODEL
-
-class CNN_GAT(nn.Module):
+# =========================
+# IMPROVED MODEL (WITH FREQ LEARNING)
+# =========================
+class CNN_GAT_FREQ(nn.Module):
     def __init__(self):
         super().__init__()
 
+        # CNN (unchanged + stable)
         self.cnn = nn.Sequential(
             nn.Conv1d(17, 32, 5, padding=2),
+            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
             nn.Dropout(0.3),
 
             nn.Conv1d(32, 64, 5, padding=2),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.MaxPool1d(2),
             nn.Dropout(0.3)
         )
 
+        # SAME GAT
         self.gat = GATConv(64, 16, heads=1)
-        self.fc = nn.Linear(16, 2)
 
-    def forward(self, x):
+        # 🔥 NEW: Learnable frequency layer
+        self.freq_layer = nn.Sequential(
+            nn.Linear(34, 34),
+            nn.ReLU(),
+            nn.Dropout(0.2)
+        )
+
+        # SAME final layer
+        self.fc = nn.Linear(50, 2)
+
+    def forward(self, x, delta, theta):
         x = self.cnn(x)
         x = x.permute(0, 2, 1)
 
@@ -65,52 +77,81 @@ class CNN_GAT(nn.Module):
             outputs.append(out)
 
         outputs = torch.stack(outputs)
-        return self.fc(outputs)
+
+        # 🔥 frequency processing
+        freq = torch.cat((delta, theta), dim=1)
+        freq = self.freq_layer(freq)
+
+        # 🔥 slight weighting
+        combined = torch.cat((outputs, 1.5 * freq), dim=1)
+
+        return self.fc(combined)
 
 
-
+# =========================
 # MAIN
-
+# =========================
 if __name__ == "__main__":
 
-    print("Loading segmented data...")
+    print("Loading data...")
 
-    # data load
     X_train = np.load("data/X_train.npy").astype(np.float32)
     y_train = np.load("data/y_train.npy")
 
     X_test = np.load("data/X_test.npy").astype(np.float32)
     y_test = np.load("data/y_test.npy")
 
-    print("Train shape:", X_train.shape)
-    print("Test shape:", X_test.shape)
+    delta_train = np.load("data/delta_train.npy").astype(np.float32)
+    theta_train = np.load("data/theta_train.npy").astype(np.float32)
 
-    
-    # Data Aug    
-    X_train = X_train + np.random.normal(0, 0.01, X_train.shape)
-    X_train = X_train.astype(np.float32)
+    delta_test = np.load("data/delta_test.npy").astype(np.float32)
+    theta_test = np.load("data/theta_test.npy").astype(np.float32)
 
-    
+    # =========================
+    # NORMALIZE FREQ FEATURES
+    # =========================
+    delta_mean, delta_std = delta_train.mean(), delta_train.std()
+    theta_mean, theta_std = theta_train.mean(), theta_train.std()
+
+    delta_train = (delta_train - delta_mean) / (delta_std + 1e-6)
+    theta_train = (theta_train - theta_mean) / (theta_std + 1e-6)
+
+    delta_test = (delta_test - delta_mean) / (delta_std + 1e-6)
+    theta_test = (theta_test - theta_mean) / (theta_std + 1e-6)
+
+    # =========================
+    # AUGMENTATION
+    # =========================
+    X_train = X_train + np.random.normal(0, 0.02, X_train.shape)
+
+    # =========================
     # TO TENSOR
-    
+    # =========================
     X_train = torch.tensor(X_train, dtype=torch.float32)
     y_train = torch.tensor(y_train, dtype=torch.long)
 
     X_test = torch.tensor(X_test, dtype=torch.float32)
     y_test = torch.tensor(y_test, dtype=torch.long)
 
-    
-    # MODEL SETUP
-    
-    model = CNN_GAT()
+    delta_train = torch.tensor(delta_train, dtype=torch.float32)
+    theta_train = torch.tensor(theta_train, dtype=torch.float32)
+
+    delta_test = torch.tensor(delta_test, dtype=torch.float32)
+    theta_test = torch.tensor(theta_test, dtype=torch.float32)
+
+    # =========================
+    # MODEL
+    # =========================
+    model = CNN_GAT_FREQ()
+
+    optimizer = optim.Adam(model.parameters(), lr=0.0005)
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    print("\nTraining...")
+    print("\nTraining improved frequency model...")
 
-    epochs = 30
+    epochs = 60
     batch_size = 32
-    train_losses = []
+    losses = []
 
     for epoch in range(epochs):
         model.train()
@@ -118,11 +159,16 @@ if __name__ == "__main__":
         batch_count = 0
 
         for i in range(0, len(X_train), batch_size):
+
             X_batch = X_train[i:i+batch_size]
             y_batch = y_train[i:i+batch_size]
 
+            delta_batch = delta_train[i:i+batch_size]
+            theta_batch = theta_train[i:i+batch_size]
+
             optimizer.zero_grad()
-            outputs = model(X_batch)
+
+            outputs = model(X_batch, delta_batch, theta_batch)
 
             loss = criterion(outputs, y_batch)
             loss.backward()
@@ -132,20 +178,17 @@ if __name__ == "__main__":
             batch_count += 1
 
         avg_loss = total_loss / batch_count
-        train_losses.append(avg_loss)
+        losses.append(avg_loss)
 
         print(f"Epoch {epoch+1}, Loss: {avg_loss:.4f}")
 
-    
+    # =========================
     # LOSS CURVE
-    
+    # =========================
     plt.figure()
-    plt.plot(train_losses, marker='o')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training Loss Curve')
-    plt.grid()
-    plt.savefig("loss_curve.png")
+    plt.plot(losses)
+    plt.title("Loss Curve (Freq Improved)")
+    plt.savefig("loss_freq_improved.png")
     plt.close()
 
     print("\nEvaluating...")
@@ -156,9 +199,12 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         for i in range(0, len(X_test), batch_size):
-            X_batch = X_test[i:i+batch_size]
 
-            out = model(X_batch)
+            X_batch = X_test[i:i+batch_size]
+            delta_batch = delta_test[i:i+batch_size]
+            theta_batch = theta_test[i:i+batch_size]
+
+            out = model(X_batch, delta_batch, theta_batch)
 
             probs = torch.softmax(out, dim=1)[:, 1]
             pred = torch.argmax(out, dim=1)
@@ -170,64 +216,20 @@ if __name__ == "__main__":
     y_pred = np.array(preds)
     probs_all = np.array(probs_all)
 
-    
-    # METRICS
-    
     print("\n--- Classification Report ---")
     print(classification_report(y_true, y_pred))
 
     acc = accuracy_score(y_true, y_pred)
     print(f"\nAccuracy: {acc*100:.2f}%")
 
-    
-    # CONFUSION MATRIX
-    
     cm = confusion_matrix(y_true, y_pred)
     print("\nConfusion Matrix:\n", cm)
 
-    plt.figure()
-    plt.imshow(cm)
-    plt.title("Confusion Matrix")
-
-    for i in range(len(cm)):
-        for j in range(len(cm)):
-            plt.text(j, i, cm[i, j], ha='center', va='center')
-
-    plt.savefig("confusion_matrix.png")
-    plt.close()
-
-    
-    # ROC + AUC
-    
     fpr, tpr, _ = roc_curve(y_true, probs_all)
     roc_auc = auc(fpr, tpr)
-
-    plt.figure()
-    plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.2f}")
-    plt.plot([0,1],[0,1],'--')
-    plt.legend()
-    plt.title("ROC Curve")
-    plt.savefig("roc_curve.png")
-    plt.close()
-
     print(f"\nAUC Score: {roc_auc:.4f}")
 
-    
-    # PR CURVE
-    
-    precision, recall, _ = precision_recall_curve(y_true, probs_all)
-
-    plt.figure()
-    plt.plot(recall, precision)
-    plt.title("Precision-Recall Curve")
-    plt.savefig("pr_curve.png")
-    plt.close()
-
-    
-    # SAVE MODEL
-    
     os.makedirs("models", exist_ok=True)
-    torch.save(model.state_dict(), "models/cnn_gat_model.pth")
+    torch.save(model.state_dict(), "models/cnn_gat_freq_improved.pth")
 
-    print("\nSaved all performance graphs")
     print("\nDone")
